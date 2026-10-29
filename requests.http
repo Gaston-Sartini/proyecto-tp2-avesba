@@ -1,0 +1,274 @@
+###############################################################################
+# AvesBA API — pruebas a mano con la extensión REST Client de VS Code
+#
+# Cómo usarlo:
+#   1. Arrancá el servidor:  npm run dev
+#   2. Hacé clic en "Send Request" arriba de cada pedido, EN ORDEN.
+#      Los pedidos con "# @name" guardan su respuesta y los siguientes la usan
+#      (por ejemplo, el token del login o las preguntas de la partida).
+###############################################################################
+
+@baseUrl = http://localhost:8000
+
+
+###############################################################################
+# 1. ESTADO
+###############################################################################
+
+### 1.1 El servidor está vivo (200)
+GET {{baseUrl}}/
+
+
+###############################################################################
+# 2. AUTENTICACIÓN
+###############################################################################
+
+### 2.1 Login del admin (200) — el admin lo crea el servidor con ADMIN_EMAIL y ADMIN_PASSWORD del .env
+# @name loginAdmin
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@avesba.com",
+  "password": "admin12345"
+}
+
+### 2.2 Login de un jugador de prueba (200) — los crea el servidor con SEED_PLAYERS
+# @name loginJugador
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "jugador010@example.com",
+  "password": "Jugador123"
+}
+
+@adminToken = {{loginAdmin.response.body.$.access_token}}
+@token = {{loginJugador.response.body.$.access_token}}
+@refreshToken = {{loginJugador.response.body.$.refresh_token}}
+
+### 2.3 Registrar un jugador nuevo (201) — la segunda vez da 409 porque el email ya existe
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nombre": "Juan",
+  "apellido": "Pérez",
+  "email": "juan.perez@example.com",
+  "password": "SecurePassword123!"
+}
+
+### 2.4 Registro con contraseña corta (400 VALIDATION_ERROR)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nombre": "Juan",
+  "apellido": "Pérez",
+  "email": "otro@example.com",
+  "password": "corta"
+}
+
+### 2.5 Login con contraseña incorrecta (401 INVALID_CREDENTIALS)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "jugador010@example.com",
+  "password": "incorrecta"
+}
+
+### 2.6 Renovar los tokens con el refresh token (200)
+POST {{baseUrl}}/auth/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "{{refreshToken}}"
+}
+
+### 2.7 Cerrar sesión: borra las cookies (200)
+POST {{baseUrl}}/auth/logout
+
+
+###############################################################################
+# 3. USUARIOS
+###############################################################################
+
+### 3.1 Mi perfil (200)
+GET {{baseUrl}}/users/me
+Authorization: Bearer {{token}}
+
+### 3.2 Mi perfil sin token (401 TOKEN_MISSING)
+GET {{baseUrl}}/users/me
+
+### 3.3 Cambiar mi contraseña con la actual incorrecta (400 WRONG_PASSWORD)
+PATCH {{baseUrl}}/users/me/password
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "current_password": "NoEsMiClave",
+  "new_password": "NuevaClave123"
+}
+
+### 3.4 Listado de usuarios como jugador (403 FORBIDDEN)
+GET {{baseUrl}}/users
+Authorization: Bearer {{token}}
+
+### 3.5 Listado de usuarios como admin, paginado (200)
+GET {{baseUrl}}/users?page=1&per_page=5
+Authorization: Bearer {{adminToken}}
+
+### 3.6 Listado filtrado por rol (200)
+GET {{baseUrl}}/users?role=moderador
+Authorization: Bearer {{adminToken}}
+
+### 3.7 Ver un usuario como admin (200)
+GET {{baseUrl}}/users/2
+Authorization: Bearer {{adminToken}}
+
+### 3.8 Un jugador intenta ver a otro usuario (403)
+GET {{baseUrl}}/users/2
+Authorization: Bearer {{token}}
+
+### 3.9 Usuario inexistente (404)
+GET {{baseUrl}}/users/99999
+Authorization: Bearer {{adminToken}}
+
+### 3.10 El admin cambia nombre y rol de un usuario (200)
+PATCH {{baseUrl}}/users/20
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "nombre": "Juana",
+  "role": "moderador"
+}
+
+### 3.11 El admin resetea la contraseña de un usuario (200, devuelve la nueva)
+POST {{baseUrl}}/users/30/reset-password
+Authorization: Bearer {{adminToken}}
+
+
+###############################################################################
+# 4. JUEGO
+###############################################################################
+
+### 4.1 Iniciar partida (200) — trae 10 preguntas de iNaturalist y las guarda en la partida
+POST {{baseUrl}}/api/inaturalist/juego/iniciar?place_id=10434&locale=es-AR
+Authorization: Bearer {{token}}
+
+### 4.2 Ver la partida activa (200): preguntas, respuestas dadas, racha y puntos
+# @name sesion
+GET {{baseUrl}}/api/inaturalist/juego/sesion
+Authorization: Bearer {{token}}
+
+### 4.3 Responder BIEN la primera pregunta (200, es_correcta: true)
+POST {{baseUrl}}/api/inaturalist/juego/respuesta
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "ave_id": {{sesion.response.body.$.preguntas[0].id}},
+  "respuesta_usuario": "{{sesion.response.body.$.preguntas[0].nombre}}"
+}
+
+### 4.4 Responder MAL la segunda pregunta (200, es_correcta: false)
+POST {{baseUrl}}/api/inaturalist/juego/respuesta
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "ave_id": {{sesion.response.body.$.preguntas[1].id}},
+  "respuesta_usuario": "Cualquier cosa"
+}
+
+### 4.5 Responder otra vez la primera (400 ALREADY_ANSWERED)
+POST {{baseUrl}}/api/inaturalist/juego/respuesta
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "ave_id": {{sesion.response.body.$.preguntas[0].id}},
+  "respuesta_usuario": "{{sesion.response.body.$.preguntas[0].nombre}}"
+}
+
+### 4.6 Responder un ave que no está en el lote (400 BIRD_NOT_IN_BATCH)
+POST {{baseUrl}}/api/inaturalist/juego/respuesta
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "ave_id": 999999,
+  "respuesta_usuario": "Tero"
+}
+
+### 4.7 Las preguntas de la partida activa (200, siempre el mismo lote)
+GET {{baseUrl}}/api/inaturalist/juego/aves
+Authorization: Bearer {{token}}
+
+### 4.8 Estadísticas de la partida en curso (200)
+GET {{baseUrl}}/api/inaturalist/juego/sesion/estadisticas
+Authorization: Bearer {{token}}
+
+### 4.9 Terminar la partida (200, guarda el puntaje)
+POST {{baseUrl}}/api/inaturalist/juego/terminar
+Authorization: Bearer {{token}}
+
+### 4.10 Terminar otra vez (404 NO_ACTIVE_SESSION: ya no hay partida activa)
+POST {{baseUrl}}/api/inaturalist/juego/terminar
+Authorization: Bearer {{token}}
+
+### 4.11 Ranking de los 10 mejores (200)
+GET {{baseUrl}}/api/inaturalist/juego/ranking?limit=10
+Authorization: Bearer {{token}}
+
+### 4.12 Ranking con un límite inválido (400)
+GET {{baseUrl}}/api/inaturalist/juego/ranking?limit=500
+Authorization: Bearer {{token}}
+
+
+###############################################################################
+# 5. MÉTRICAS
+###############################################################################
+
+### 5.1 Mis métricas (200)
+GET {{baseUrl}}/api/inaturalist/metricas/usuario
+Authorization: Bearer {{token}}
+
+### 5.2 Métricas globales como jugador (403 "Acceso denegado")
+GET {{baseUrl}}/api/inaturalist/metricas/global
+Authorization: Bearer {{token}}
+
+### 5.3 Métricas globales como admin (200)
+GET {{baseUrl}}/api/inaturalist/metricas/global
+Authorization: Bearer {{adminToken}}
+
+
+###############################################################################
+# 6. ACTIVIDAD
+###############################################################################
+
+### 6.1 Aviso de desconexión (204) — el front lo manda con sendBeacon al cerrar la pestaña
+POST {{baseUrl}}/api/user-connection-log
+Content-Type: text/plain
+
+{"userId": 11, "tiempoConectado": 90000}
+
+
+###############################################################################
+# 7. ERRORES GENERALES
+###############################################################################
+
+### 7.1 Ruta inexistente (404 ROUTE_NOT_FOUND)
+GET {{baseUrl}}/no-existe
+
+### 7.2 Body que no es JSON (400 INVALID_JSON)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ esto no es json
+
+### 7.3 Token modificado a mano (401 TOKEN_INVALID)
+GET {{baseUrl}}/users/me
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwicm9sZSI6ImFkbWluIiwidHlwZSI6ImFjY2VzcyJ9.firmaFalsa

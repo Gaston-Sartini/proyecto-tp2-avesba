@@ -1,0 +1,39 @@
+{
+  "name": "avesba-api",
+  "version": "1.0.0",
+  "description": "API REST de AvesBA — juego de aves con Arquitectura en Capas, persistencia intercambiable (memoria / Sequelize + SQLite), eventos y JWT",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node --env-file=.env index.js",
+    "dev": "node --env-file=.env --watch index.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "express",
+    "rest-api",
+    "node",
+    "zod",
+    "dao",
+    "sequelize",
+    "sqlite",
+    "ioc",
+    "jwt",
+    "bcrypt"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "sequelize": "^6.37.8",
+    "sqlite3": "^6.0.1",
+    "zod": "^4.6.7"
+  },
+  "allowScripts": {
+    "sqlite3@6.0.1": true
+  }
+}

@@ -43,6 +43,22 @@ class GameResultsMemoryDao {
       .filter((r) => user_id === undefined || r.user_id === Number(user_id))
       .map((r) => ({ ...r }));
   }
+
+  // Borra todas las respuestas de una partida. Devuelve cuántas borró.
+  async deleteBySession(sessionId) {
+    return this.#deleteWhere((r) => r.session_id === Number(sessionId));
+  }
+
+  // Borra todas las respuestas de un usuario. Devuelve cuántas borró.
+  async deleteByUser(userId) {
+    return this.#deleteWhere((r) => r.user_id === Number(userId));
+  }
+
+  #deleteWhere(condicion) {
+    const antes = this.#results.length;
+    this.#results = this.#results.filter((r) => !condicion(r));
+    return antes - this.#results.length;
+  }
 }
 
 export default GameResultsMemoryDao;

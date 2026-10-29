@@ -65,6 +65,16 @@ class GameResultsSequelizeDao {
     });
     return results.map((r) => r.get({ plain: true }));
   }
+
+  // Borra todas las respuestas de una partida. Devuelve cuántas borró.
+  async deleteBySession(sessionId) {
+    return GameResultModel.destroy({ where: { session_id: sessionId } });
+  }
+
+  // Borra todas las respuestas de un usuario. Devuelve cuántas borró.
+  async deleteByUser(userId) {
+    return GameResultModel.destroy({ where: { user_id: userId } });
+  }
 }
 
 export default GameResultsSequelizeDao;

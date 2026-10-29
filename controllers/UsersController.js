@@ -30,9 +30,20 @@ class UsersController {
     res.json(await this.#useCases.getUserById(req.params.id, req.user));
   };
 
+  // POST /users
+  create = async (req, res) => {
+    res.status(201).json(await this.#useCases.createUser(req.body));
+  };
+
   // PATCH /users/:id
   update = async (req, res) => {
     res.json(await this.#useCases.updateUser(req.params.id, req.body));
+  };
+
+  // DELETE /users/:id — 204: se borró y no hay nada que devolver
+  remove = async (req, res) => {
+    await this.#useCases.deleteUser(req.params.id, req.user);
+    res.status(204).send();
   };
 
   // POST /users/:id/reset-password

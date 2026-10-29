@@ -77,6 +77,40 @@ for (const persistence of PERSISTENCES) {
         assert.equal(actualizado.id, id);
         assert.equal(actualizado.is_active, false);
       });
+
+      it("delete devuelve true si lo borró y false si no existía", async () => {
+        const { id } = await usersDao.save(nuevoUsuario());
+        assert.equal(await usersDao.delete(id), true);
+        assert.equal(await usersDao.getById(id), null);
+        assert.equal(await usersDao.delete(id), false);
+      });
+    });
+
+    describe("Borrados en cascada", () => {
+      it("deleteBySession y deleteByUser borran solo lo de esa partida o ese usuario", async () => {
+        const { id: uno } = await usersDao.save(nuevoUsuario());
+        const { id: otro } = await usersDao.save(nuevoUsuario());
+        const partidaUno = await gameSessionsDao.create({ user_id: uno, estado: "terminada", createdAt: 1 });
+        const partidaOtro = await gameSessionsDao.create({ user_id: otro, estado: "terminada", createdAt: 1 });
+        const respuesta = (user_id, session_id) => ({
+          user_id,
+          session_id,
+          ave_id: 1,
+          ave_nombre: "A",
+          respuesta_usuario: "A",
+          es_correcta: true,
+          createdAt: 1,
+        });
+        await gameResultsDao.saveMany([respuesta(uno, partidaUno.id), respuesta(otro, partidaOtro.id)]);
+
+        assert.equal(await gameResultsDao.deleteBySession(partidaUno.id), 1);
+        assert.equal((await gameResultsDao.getAll({ user_id: otro })).length, 1);
+
+        assert.equal(await gameResultsDao.deleteByUser(otro), 1);
+        assert.equal(await gameSessionsDao.deleteByUser(uno), 1);
+        assert.equal(await gameSessionsDao.getById(partidaUno.id), null);
+        assert.notEqual(await gameSessionsDao.getById(partidaOtro.id), null);
+      });
     });
 
     describe("Partidas y respuestas", () => {

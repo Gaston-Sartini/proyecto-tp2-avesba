@@ -63,6 +63,15 @@ class UsersMemoryDao {
     this.#users[index] = { ...this.#users[index], ...allowedChanges };
     return this.#toPublic(this.#users[index]);
   }
+
+  // Devuelve true si lo borró, false si no existía
+  async delete(id) {
+    const index = this.#users.findIndex((u) => u.id === Number(id));
+    if (index === -1) return false;
+
+    this.#users.splice(index, 1);
+    return true;
+  }
 }
 
 // Exportamos la clase: la factory (daoFactory.js) crea la instancia

@@ -63,6 +63,11 @@ class GameSessionsSequelizeDao {
     await session.update(allowedChanges);
     return this.getById(id);
   }
+
+  // Borra todas las partidas de un usuario. Devuelve cuántas borró.
+  async deleteByUser(userId) {
+    return GameSessionModel.destroy({ where: { user_id: userId } });
+  }
 }
 
 export default GameSessionsSequelizeDao;

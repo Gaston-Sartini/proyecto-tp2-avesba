@@ -1,8 +1,13 @@
 import { z } from "zod";
-import { password } from "./authSchema.js";
+import { password, registerSchema } from "./authSchema.js";
 
 const ROLES = ["jugador", "moderador", "admin"];
 const role = z.enum(ROLES, { error: "El rol debe ser 'jugador', 'moderador' o 'admin'" });
+
+// Esquema para POST /users (solo admins): el del registro + el rol, que acá SÍ se puede elegir
+const createUserSchema = registerSchema.extend({
+  role: role.default("jugador"),
+});
 
 // Esquema para PATCH /users/me/password
 const changePasswordSchema = z.object({
@@ -35,4 +40,4 @@ const userIdParamSchema = z.object({
   id: z.coerce.number().int("El ID debe ser un número entero").positive("El ID debe ser un número positivo"),
 });
 
-export { ROLES, changePasswordSchema, updateUserSchema, queryUsersSchema, userIdParamSchema };
+export { ROLES, createUserSchema, changePasswordSchema, updateUserSchema, queryUsersSchema, userIdParamSchema };

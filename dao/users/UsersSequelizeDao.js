@@ -71,6 +71,12 @@ class UsersSequelizeDao {
     await user.update(allowedChanges);
     return this.getById(id);
   }
+
+  // Devuelve true si lo borró, false si no existía
+  async delete(id) {
+    const deletedCount = await UserModel.destroy({ where: { id } });
+    return deletedCount > 0;
+  }
 }
 
 export default UsersSequelizeDao;

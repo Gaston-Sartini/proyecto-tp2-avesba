@@ -103,7 +103,9 @@ async function buildContainer(overrides = {}) {
   const authController = new AuthController(makeAuthUseCases({ usersDao, hasher, tokens, loginAttempts, events }));
   router.use("/auth", createAuthRouter(authController));
 
-  const usersController = new UsersController(makeUserUseCases({ usersDao, hasher }));
+  const usersController = new UsersController(
+    makeUserUseCases({ usersDao, gameSessionsDao, gameResultsDao, hasher, events })
+  );
   router.use("/users", createUsersRouter(usersController, auth));
 
   const gameController = new GameController(

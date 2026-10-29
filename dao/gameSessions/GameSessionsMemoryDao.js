@@ -59,6 +59,13 @@ class GameSessionsMemoryDao {
     this.#sessions[index] = { ...this.#sessions[index], ...structuredClone(allowedChanges) };
     return this.#copy(this.#sessions[index]);
   }
+
+  // Borra todas las partidas de un usuario. Devuelve cuántas borró.
+  async deleteByUser(userId) {
+    const antes = this.#sessions.length;
+    this.#sessions = this.#sessions.filter((s) => s.user_id !== Number(userId));
+    return antes - this.#sessions.length;
+  }
 }
 
 export default GameSessionsMemoryDao;

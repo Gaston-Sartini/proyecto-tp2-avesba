@@ -1,6 +1,12 @@
 import express from "express";
 import validate, { validateQuery, validateParams } from "../middlewares/validate.js";
-import { changePasswordSchema, updateUserSchema, queryUsersSchema, userIdParamSchema } from "../schemas/userSchema.js";
+import {
+  createUserSchema,
+  changePasswordSchema,
+  updateUserSchema,
+  queryUsersSchema,
+  userIdParamSchema,
+} from "../schemas/userSchema.js";
 
 /**
  * Factory de Router de Usuarios.
@@ -19,8 +25,10 @@ function createUsersRouter(controller, { authenticate, authorize }) {
   router.patch("/me/password", validate(changePasswordSchema), controller.changeMyPassword);
 
   router.get("/", authorize("admin", "moderador"), validateQuery(queryUsersSchema), controller.list);
+  router.post("/", authorize("admin"), validate(createUserSchema), controller.create);
   router.get("/:id", validateParams(userIdParamSchema), controller.get);
   router.patch("/:id", authorize("admin"), validateParams(userIdParamSchema), validate(updateUserSchema), controller.update);
+  router.delete("/:id", authorize("admin"), validateParams(userIdParamSchema), controller.remove);
   router.post("/:id/reset-password", authorize("admin"), validateParams(userIdParamSchema), controller.resetPassword);
 
   return router;

@@ -35,6 +35,7 @@ import makeUserUseCases from "../usecases/users/makeUserUseCases.js";
 import makeGameUseCases from "../usecases/game/makeGameUseCases.js";
 import makeMetricsUseCases from "../usecases/metrics/makeMetricsUseCases.js";
 import makeActivityUseCases from "../usecases/activity/makeActivityUseCases.js";
+import makePartidaUseCases from "../usecases/partidas/makePartidaUseCases.js";
 import seedAdmin from "../usecases/auth/seedAdmin.js";
 import seedPlayers from "../usecases/seed/seedPlayers.js";
 
@@ -45,6 +46,7 @@ import UsersController from "../controllers/UsersController.js";
 import GameController from "../controllers/GameController.js";
 import MetricsController from "../controllers/MetricsController.js";
 import ActivityController from "../controllers/ActivityController.js";
+import PartidasController from "../controllers/PartidasController.js";
 
 // Routers
 import createHealthRouter from "../routes/healthRoutes.js";
@@ -53,6 +55,7 @@ import createUsersRouter from "../routes/usersRoutes.js";
 import createGameRouter from "../routes/gameRoutes.js";
 import createMetricsRouter from "../routes/metricsRoutes.js";
 import createActivityRouter from "../routes/activityRoutes.js";
+import createPartidasRouter from "../routes/partidasRoutes.js";
 
 /**
  * Composition Root centralizado.
@@ -112,6 +115,11 @@ async function buildContainer(overrides = {}) {
     makeGameUseCases({ usersDao, gameSessionsDao, gameResultsDao, birdsProvider, events })
   );
   router.use("/api/inaturalist/juego", createGameRouter(gameController, auth));
+
+  const partidasController = new PartidasController(
+    makePartidaUseCases({ gameSessionsDao, gameResultsDao, birdsProvider, events })
+  );
+  router.use("/partidas", createPartidasRouter(partidasController, auth));
 
   const metricsController = new MetricsController(makeMetricsUseCases({ usersDao, gameResultsDao }));
   router.use("/api/inaturalist/metricas", createMetricsRouter(metricsController, auth));

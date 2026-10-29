@@ -11,7 +11,8 @@ class GameController {
 
   // POST /api/inaturalist/juego/iniciar?place_id=&locale=
   start = async (req, res) => {
-    res.json(await this.#useCases.startGame(req.query, req.user));
+    const session = await this.#useCases.startGame(req.query, req.user);
+    res.json({ session_id: session.id, mensaje: "Sesión iniciada. Comienza a jugar." });
   };
 
   // GET /api/inaturalist/juego/aves?place_id=&locale=

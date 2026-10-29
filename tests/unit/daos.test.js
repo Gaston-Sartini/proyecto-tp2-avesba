@@ -86,6 +86,42 @@ for (const persistence of PERSISTENCES) {
       });
     });
 
+    describe("Listado de partidas", () => {
+      it("getAll filtra, ordena y pagina igual; count y delete funcionan", async () => {
+        const { id: userId } = await usersDao.save(nuevoUsuario());
+        for (const [puntos, estado] of [
+          [30, "terminada"],
+          [10, "terminada"],
+          [20, "activa"],
+        ]) {
+          await gameSessionsDao.create({ user_id: userId, estado, puntos_totales: puntos, createdAt: puntos });
+        }
+
+        const porPuntos = await gameSessionsDao.getAll({ user_id: userId, sort: "-puntos_totales" });
+        assert.deepEqual(
+          porPuntos.map((s) => s.puntos_totales),
+          [30, 20, 10]
+        );
+
+        const terminadas = await gameSessionsDao.getAll({ user_id: userId, estado: "terminada", sort: "createdAt" });
+        assert.deepEqual(
+          terminadas.map((s) => s.puntos_totales),
+          [10, 30]
+        );
+        assert.equal(await gameSessionsDao.count({ user_id: userId, estado: "terminada" }), 2);
+
+        const pagina2 = await gameSessionsDao.getAll({ user_id: userId, sort: "createdAt", page: 2, limit: 2 });
+        assert.deepEqual(
+          pagina2.map((s) => s.puntos_totales),
+          [30]
+        );
+
+        assert.equal(await gameSessionsDao.delete(porPuntos[0].id), true);
+        assert.equal(await gameSessionsDao.delete(porPuntos[0].id), false);
+        assert.equal(await gameSessionsDao.count({ user_id: userId }), 2);
+      });
+    });
+
     describe("Borrados en cascada", () => {
       it("deleteBySession y deleteByUser borran solo lo de esa partida o ese usuario", async () => {
         const { id: uno } = await usersDao.save(nuevoUsuario());

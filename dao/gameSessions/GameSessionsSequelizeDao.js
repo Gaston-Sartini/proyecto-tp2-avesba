@@ -64,6 +64,38 @@ class GameSessionsSequelizeDao {
     return this.getById(id);
   }
 
+  #where({ user_id, estado } = {}) {
+    const where = {};
+    if (user_id !== undefined) where.user_id = user_id;
+    if (estado !== undefined) where.estado = estado;
+    return where;
+  }
+
+  // Lista partidas: el filtro, el orden y la paginación los resuelve la BD (WHERE / ORDER BY / LIMIT)
+  // filters: { user_id, estado, sort ("createdAt" | "-puntos_totales" ...), page, limit }
+  async getAll({ user_id, estado, sort = "-createdAt", page = 1, limit } = {}) {
+    const sessions = await GameSessionModel.findAll({
+      where: this.#where({ user_id, estado }),
+      attributes: SESSION_ATTRIBUTES,
+      order: [
+        [sort.replace(/^-/, ""), sort.startsWith("-") ? "DESC" : "ASC"],
+        ["id", "ASC"], // desempate: mismo orden que el DAO en memoria
+      ],
+      ...(limit && { limit, offset: (page - 1) * limit }),
+    });
+    return sessions.map((s) => s.get({ plain: true }));
+  }
+
+  async count({ user_id, estado } = {}) {
+    return GameSessionModel.count({ where: this.#where({ user_id, estado }) });
+  }
+
+  // Devuelve true si la borró, false si no existía
+  async delete(id) {
+    const deletedCount = await GameSessionModel.destroy({ where: { id } });
+    return deletedCount > 0;
+  }
+
   // Borra todas las partidas de un usuario. Devuelve cuántas borró.
   async deleteByUser(userId) {
     return GameSessionModel.destroy({ where: { user_id: userId } });

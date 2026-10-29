@@ -20,7 +20,8 @@ async function startGame({ place_id, locale }, actor, deps) {
     await closeSession(anterior, deps);
   }
 
-  const session = await gameSessionsDao.create({
+  // Devuelve la partida creada: /juego/iniciar responde solo { session_id, mensaje } y POST /partidas, la partida completa
+  return gameSessionsDao.create({
     user_id: actor.id,
     estado: "activa",
     preguntas,
@@ -34,8 +35,6 @@ async function startGame({ place_id, locale }, actor, deps) {
     createdAt: Date.now(),
     terminadaAt: null,
   });
-
-  return { session_id: session.id, mensaje: "Sesión iniciada. Comienza a jugar." };
 }
 
 export default startGame;

@@ -6,6 +6,7 @@ import notFound from "./middlewares/notFound.js";
 import errorHandler from "./middlewares/errorHandler.js";
 import { CORS_ORIGIN } from "./config/config.js";
 import buildContainer from "./container/container.js";
+import createDocsRouter from "./docs/swagger.js";
 
 /**
  * Arma la aplicación Express completa, pero SIN ponerla a escuchar en un puerto.
@@ -20,6 +21,9 @@ async function createApp(overrides = {}) {
   app.use(logger);
   app.use(express.json());
   app.use(cookieParser()); // deja las cookies del pedido en req.cookies
+
+  // Documentación Swagger en /api-docs (pública)
+  app.use(createDocsRouter());
 
   // Todas las rutas salen del Composition Root (Container)
   app.use(await buildContainer(overrides));

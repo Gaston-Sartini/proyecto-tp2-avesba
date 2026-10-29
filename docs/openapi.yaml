@@ -1,0 +1,1062 @@
+openapi: 3.0.3
+
+info:
+  title: AvesBA API
+  version: 1.0.0
+  description: |
+    API REST del juego **AvesBA**: el jugador ve la foto de un ave de Buenos Aires y tiene que adivinar cuál es entre 4 opciones.
+    Las aves salen de la API pública de [iNaturalist](https://www.inaturalist.org).
+
+    **Cómo probar con "Try it out":**
+    1. `POST /auth/login` con el admin (`admin@avesba.com` / `admin12345`) o un jugador de prueba (`jugador010@example.com` / `Jugador123`).
+    2. Copiá el `access_token` de la respuesta.
+    3. Tocá el botón **Authorize** (arriba a la derecha), pegalo en `bearerAuth` y confirmá.
+
+    El login también deja el token en una cookie, así que desde esta misma página muchas rutas funcionan sin Authorize.
+
+    **Formato de los errores** (todos iguales): `{ "error": { "code", "message", "details"? }, "detail" }`.
+
+servers:
+  - url: http://localhost:8000
+    description: Servidor local (npm run dev)
+
+tags:
+  - name: Estado
+    description: Si el servidor está vivo
+  - name: Autenticación
+    description: Registro, login, renovación de tokens y logout
+  - name: Usuarios
+    description: CRUD de usuarios, mi perfil y mi contraseña
+  - name: Partidas
+    description: CRUD de partidas (cada partida tiene muchas respuestas)
+  - name: Juego
+    description: El flujo del juego que usa el front (iniciar, preguntas, responder, retomar, terminar, ranking)
+  - name: Métricas
+    description: Estadísticas del jugador y del sistema
+  - name: Actividad
+    description: Avisos del front
+
+paths:
+  # ---------------------------------------------------------------------------
+  # ESTADO
+  # ---------------------------------------------------------------------------
+  /:
+    get:
+      tags: [Estado]
+      summary: Estado del servidor
+      description: Responde si el servidor está vivo, con el nombre y la versión de la app.
+      operationId: getHealth
+      responses:
+        "200":
+          description: El servidor funciona
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  # ---------------------------------------------------------------------------
+  # AUTENTICACIÓN
+  # ---------------------------------------------------------------------------
+  /auth/register:
+    post:
+      tags: [Autenticación]
+      summary: Registrarse como jugador
+      description: Crea un usuario con rol `jugador` (el rol no se puede elegir) y devuelve los tokens. También los deja en cookies httpOnly.
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+            example: { nombre: Juan, apellido: Pérez, email: juan.perez@example.com, password: SecurePassword123! }
+      responses:
+        "201":
+          description: Registrado. Tokens en el JSON y en cookies.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tokens" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /auth/login:
+    post:
+      tags: [Autenticación]
+      summary: Iniciar sesión
+      description: |
+        Devuelve los tokens y los deja en cookies httpOnly.
+        Si el email no existe o la contraseña está mal, el error es el mismo (para no revelar quién tiene cuenta).
+        Después de 5 intentos fallidos con el mismo email, se bloquea 15 minutos (429).
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+            examples:
+              admin:
+                summary: Administrador
+                value: { email: admin@avesba.com, password: admin12345 }
+              jugador:
+                summary: Jugador de prueba
+                value: { email: jugador010@example.com, password: Jugador123 }
+      responses:
+        "200":
+          description: Sesión iniciada
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /auth/refresh:
+    post:
+      tags: [Autenticación]
+      summary: Renovar los tokens
+      description: Con el refresh token (en el body o en la cookie `refresh_token`) devuelve un access token nuevo. Un access token no sirve acá.
+      operationId: refresh
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefreshRequest" }
+            example: { refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... }
+      responses:
+        "200":
+          description: Tokens nuevos
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tokens" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /auth/logout:
+    post:
+      tags: [Autenticación]
+      summary: Cerrar sesión
+      description: Borra las cookies de los tokens.
+      operationId: logout
+      responses:
+        "200":
+          description: Sesión cerrada
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Mensaje" }
+              example: { mensaje: Sesión cerrada exitosamente }
+
+  # ---------------------------------------------------------------------------
+  # USUARIOS
+  # ---------------------------------------------------------------------------
+  /users/me:
+    get:
+      tags: [Usuarios]
+      summary: Mi perfil
+      description: Los datos del usuario del token. Nunca incluye la contraseña ni su hash.
+      operationId: getMe
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: Mi perfil
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /users/me/password:
+    patch:
+      tags: [Usuarios]
+      summary: Cambiar mi contraseña
+      description: Hay que mandar la contraseña actual correcta además de la nueva.
+      operationId: changeMyPassword
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangePasswordRequest" }
+            example: { current_password: Jugador123, new_password: NuevaClave456 }
+      responses:
+        "200":
+          description: Contraseña cambiada
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Message" }
+              example: { message: Contraseña actualizada exitosamente }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /users:
+    get:
+      tags: [Usuarios]
+      summary: Listar usuarios activos (admin y moderador)
+      description: Paginado y con filtro opcional por rol.
+      operationId: listUsers
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: role
+          in: query
+          description: Filtrar por rol
+          schema: { $ref: "#/components/schemas/Role" }
+      responses:
+        "200":
+          description: Página de usuarios
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Usuarios]
+      summary: Crear un usuario (solo admin)
+      description: A diferencia del registro, el admin puede elegir el rol. Si no lo manda, se crea un jugador.
+      operationId: createUser
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateUserRequest" }
+            example: { nombre: Laura, apellido: Ríos, email: laura.rios@example.com, password: ClaveSegura123, role: moderador }
+      responses:
+        "201":
+          description: Usuario creado
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /users/{id}:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    get:
+      tags: [Usuarios]
+      summary: Ver un usuario
+      description: Un jugador solo puede verse a sí mismo; moderadores y admins ven a cualquiera.
+      operationId: getUser
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: El usuario
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Usuarios]
+      summary: Actualizar un usuario (solo admin)
+      description: Cambia solo los campos que se manden. El email y la contraseña no se cambian por acá.
+      operationId: updateUser
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateUserRequest" }
+            example: { nombre: Juana, role: moderador, is_active: true }
+      responses:
+        "200":
+          description: Usuario actualizado
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Usuarios]
+      summary: Eliminar un usuario (solo admin)
+      description: Borra al usuario con todas sus partidas y respuestas. Un admin no puede eliminarse a sí mismo (409).
+      operationId: deleteUser
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "204": { description: Usuario eliminado (sin cuerpo) }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /users/{id}/reset-password:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    post:
+      tags: [Usuarios]
+      summary: Resetear la contraseña de un usuario (solo admin)
+      description: Genera una contraseña nueva al azar y la devuelve una sola vez.
+      operationId: resetPassword
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: Contraseña nueva
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResetPasswordResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ---------------------------------------------------------------------------
+  # PARTIDAS (CRUD)
+  # ---------------------------------------------------------------------------
+  /partidas:
+    get:
+      tags: [Partidas]
+      summary: Listar partidas
+      description: |
+        Con filtros, orden y paginación. El listado no incluye el lote de preguntas.
+        Un jugador siempre ve solo las suyas (si pide las de otro: 403). Admins y moderadores ven todas.
+      operationId: listPartidas
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - name: user_id
+          in: query
+          description: Solo las partidas de este usuario
+          schema: { type: integer, minimum: 1, example: 11 }
+        - name: estado
+          in: query
+          schema: { type: string, enum: [activa, terminada] }
+        - name: sort
+          in: query
+          description: Campo para ordenar (con "-" adelante, de mayor a menor)
+          schema:
+            type: string
+            enum: [createdAt, -createdAt, puntos_totales, -puntos_totales]
+            default: -createdAt
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: Página de partidas
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PartidaPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Partidas]
+      summary: Crear una partida
+      description: Trae 10 preguntas de iNaturalist y crea una partida activa. Si el jugador tenía otra activa, la termina.
+      operationId: createPartida
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatePartidaRequest" }
+            example: { place_id: 10434, locale: es-AR }
+      responses:
+        "201":
+          description: Partida creada (incluye el lote de preguntas)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Partida" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
+  /partidas/{id}:
+    parameters:
+      - $ref: "#/components/parameters/PartidaId"
+    get:
+      tags: [Partidas]
+      summary: Ver una partida con sus respuestas
+      description: La relación 1 a N partida → respuestas. Un jugador solo puede ver las suyas.
+      operationId: getPartida
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: La partida con sus respuestas
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PartidaConRespuestas" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Partidas]
+      summary: Terminar una partida
+      description: Lo único que se puede cambiar es el estado a `terminada`. Calcula y guarda el puntaje. Si ya estaba terminada responde 409.
+      operationId: updatePartida
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdatePartidaRequest" }
+            example: { estado: terminada }
+      responses:
+        "200":
+          description: Partida terminada
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Partida" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [Partidas]
+      summary: Eliminar una partida (solo admin)
+      description: Borra la partida y sus respuestas; deja de contar en el ranking y las métricas.
+      operationId: deletePartida
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "204": { description: Partida eliminada (sin cuerpo) }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ---------------------------------------------------------------------------
+  # JUEGO (lo que usa el front)
+  # ---------------------------------------------------------------------------
+  /api/inaturalist/juego/iniciar:
+    post:
+      tags: [Juego]
+      summary: Iniciar partida
+      description: Igual que `POST /partidas`, pero con la respuesta corta que espera el front.
+      operationId: iniciarJuego
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/PlaceId"
+        - $ref: "#/components/parameters/Locale"
+      responses:
+        "200":
+          description: Partida iniciada
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IniciarResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
+  /api/inaturalist/juego/aves:
+    get:
+      tags: [Juego]
+      summary: Preguntas del juego
+      description: Si hay partida activa devuelve siempre su mismo lote; si no, arma uno nuevo (que no se guarda).
+      operationId: getPreguntas
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/PlaceId"
+        - $ref: "#/components/parameters/Locale"
+      responses:
+        "200":
+          description: Lote de 10 preguntas
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PreguntasResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
+  /api/inaturalist/juego/respuesta:
+    post:
+      tags: [Juego]
+      summary: Responder una pregunta
+      description: |
+        Se valida contra el lote guardado en la partida (no contra lo que mande el cliente).
+        Puntos: 10 por acierto, más bonus por racha (+5 a los 3, +15 a los 5, +50 a los 10 aciertos seguidos).
+      operationId: responder
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AnswerRequest" }
+            example: { ave_id: 4867, respuesta_usuario: Tero }
+      responses:
+        "200":
+          description: Resultado de la respuesta
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnswerResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/inaturalist/juego/sesion:
+    get:
+      tags: [Juego]
+      summary: Retomar la partida activa
+      description: El lote, las respuestas ya dadas (en orden), la racha y los puntos. Lo usa el front al recargar la página.
+      operationId: getSesionActiva
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: La partida activa
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SesionActiva" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/inaturalist/juego/sesion/estadisticas:
+    get:
+      tags: [Juego]
+      summary: Estadísticas de la partida activa
+      operationId: getSesionEstadisticas
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: Puntos, intentos y aciertos hasta ahora
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionStats" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/inaturalist/juego/terminar:
+    post:
+      tags: [Juego]
+      summary: Terminar la partida activa
+      operationId: terminarJuego
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: Resumen de la partida terminada
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FinishResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/inaturalist/juego/ranking:
+    get:
+      tags: [Juego]
+      summary: Ranking de jugadores
+      description: Ordenado por puntos (incluido el bonus). Si empatan, por aciertos.
+      operationId: getRanking
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - name: limit
+          in: query
+          description: Cuántos jugadores mostrar (1 a 100)
+          schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
+      responses:
+        "200":
+          description: El ranking
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ranking" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  # ---------------------------------------------------------------------------
+  # MÉTRICAS
+  # ---------------------------------------------------------------------------
+  /api/inaturalist/metricas/usuario:
+    get:
+      tags: [Métricas]
+      summary: Mis métricas
+      operationId: getMisMetricas
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: Mis estadísticas de todas las partidas
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserMetrics" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/inaturalist/metricas/global:
+    get:
+      tags: [Métricas]
+      summary: Métricas globales (admin y moderador)
+      operationId: getMetricasGlobales
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: Estadísticas de todo el sistema
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalMetrics" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  # ---------------------------------------------------------------------------
+  # ACTIVIDAD
+  # ---------------------------------------------------------------------------
+  /api/user-connection-log:
+    post:
+      tags: [Actividad]
+      summary: Aviso de desconexión
+      description: |
+        El front lo manda con `navigator.sendBeacon` al cerrar la pestaña. Acepta el JSON como `text/plain` (así lo envía el navegador) o como `application/json`.
+        Emite el evento `user.disconnected`.
+      operationId: logConnection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConnectionLogRequest" }
+            example: { userId: 11, tiempoConectado: 90000 }
+          text/plain:
+            schema: { type: string }
+            example: '{"userId": 11, "tiempoConectado": 90000}'
+      responses:
+        "204": { description: Recibido (sin cuerpo) }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: El access_token que devuelve POST /auth/login
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: access_token
+      description: La cookie que deja el login (la usa el front)
+
+  parameters:
+    UserId:
+      name: id
+      in: path
+      required: true
+      description: ID del usuario
+      schema: { type: integer, minimum: 1, example: 2 }
+    PartidaId:
+      name: id
+      in: path
+      required: true
+      description: ID de la partida
+      schema: { type: integer, minimum: 1, example: 1 }
+    Page:
+      name: page
+      in: query
+      description: Número de página
+      schema: { type: integer, minimum: 1, default: 1 }
+    PerPage:
+      name: per_page
+      in: query
+      description: Cuántos por página (máximo 100)
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    PlaceId:
+      name: place_id
+      in: query
+      description: Lugar de iNaturalist (10434 = Buenos Aires, 7190 = Argentina)
+      schema: { type: integer, default: 10434 }
+    Locale:
+      name: locale
+      in: query
+      description: Idioma de los nombres
+      schema: { type: string, default: es-AR }
+
+  responses:
+    BadRequest:
+      description: Datos inválidos (VALIDATION_ERROR, INVALID_JSON, WRONG_PASSWORD, ALREADY_ANSWERED, BIRD_NOT_IN_BATCH)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Datos de body inválidos
+              details: [{ field: password, message: La contraseña debe tener al menos 8 caracteres }]
+            detail: La contraseña debe tener al menos 8 caracteres
+    Unauthorized:
+      description: No autenticado (TOKEN_MISSING, TOKEN_INVALID, TOKEN_EXPIRED, INVALID_CREDENTIALS, USER_INACTIVE)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: TOKEN_MISSING, message: Token de autenticación faltante }
+            detail: Token de autenticación faltante
+    Forbidden:
+      description: Sin permiso (FORBIDDEN)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: FORBIDDEN, message: "Acceso denegado: no tenés permiso para realizar esta acción" }
+            detail: "Acceso denegado: no tenés permiso para realizar esta acción"
+    NotFound:
+      description: No existe (USER_NOT_FOUND, PARTIDA_NOT_FOUND, NO_ACTIVE_SESSION, ROUTE_NOT_FOUND)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: NO_ACTIVE_SESSION, message: No hay una sesión activa }
+            detail: No hay una sesión activa
+    Conflict:
+      description: Choca con lo que ya existe (EMAIL_DUPLICATED, CANNOT_DELETE_SELF, PARTIDA_ALREADY_FINISHED, SESSION_WITHOUT_BATCH)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: EMAIL_DUPLICATED, message: El email juan.perez@example.com ya está registrado }
+            detail: El email juan.perez@example.com ya está registrado
+    TooManyRequests:
+      description: Demasiados intentos de login (TOO_MANY_ATTEMPTS)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: TOO_MANY_ATTEMPTS, message: Máximo de intentos de login excedido. Intentá más tarde. }
+            detail: Máximo de intentos de login excedido. Intentá más tarde.
+    ServiceUnavailable:
+      description: iNaturalist no responde o devolvió muy pocas aves (BIRDS_UNAVAILABLE, NOT_ENOUGH_BIRDS)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: BIRDS_UNAVAILABLE, message: No se pudieron obtener las aves de iNaturalist }
+            detail: No se pudieron obtener las aves de iNaturalist
+
+  schemas:
+    # --- Errores ---
+    Error:
+      type: object
+      description: Formato de TODOS los errores de la API
+      required: [error, detail]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, description: Código estable para máquinas, example: VALIDATION_ERROR }
+            message: { type: string, description: Mensaje para personas }
+            details:
+              type: array
+              description: Solo en errores de validación, un elemento por campo
+              items:
+                type: object
+                properties:
+                  field: { type: string, example: password }
+                  message: { type: string }
+        detail: { type: string, description: El mensaje a mostrar (lo lee el front de AvesBA) }
+
+    # --- Generales ---
+    Health:
+      type: object
+      properties:
+        status: { type: string, example: ok }
+        app: { type: string, example: AvesBA API }
+        version: { type: string, example: 1.0.0 }
+    Mensaje:
+      type: object
+      properties:
+        mensaje: { type: string }
+    Message:
+      type: object
+      properties:
+        message: { type: string }
+    Role:
+      type: string
+      enum: [jugador, moderador, admin]
+
+    # --- Autenticación ---
+    RegisterRequest:
+      type: object
+      required: [nombre, apellido, email, password]
+      properties:
+        nombre: { type: string, minLength: 1, maxLength: 100 }
+        apellido: { type: string, minLength: 1, maxLength: 100 }
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8, maxLength: 72 }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+    RefreshRequest:
+      type: object
+      properties:
+        refresh_token: { type: string, description: Si no viene, se usa la cookie refresh_token }
+    Tokens:
+      type: object
+      properties:
+        access_token: { type: string, description: JWT que dura 15 minutos }
+        refresh_token: { type: string, description: JWT que dura 7 días (solo para POST /auth/refresh) }
+        token_type: { type: string, example: bearer }
+        expires_in: { type: integer, description: Segundos que dura el access_token, example: 900 }
+    LoginResponse:
+      allOf:
+        - $ref: "#/components/schemas/Tokens"
+        - type: object
+          properties:
+            mensaje: { type: string, example: Inicio de sesión exitoso }
+
+    # --- Usuarios ---
+    User:
+      type: object
+      description: Un usuario (nunca incluye la contraseña ni su hash)
+      properties:
+        id: { type: integer, example: 11 }
+        nombre: { type: string, example: Santiago }
+        apellido: { type: string, example: González }
+        email: { type: string, format: email, example: jugador010@example.com }
+        role: { $ref: "#/components/schemas/Role" }
+        is_active: { type: boolean, example: true }
+        createdAt: { type: integer, description: Fecha en milisegundos, example: 1786558913332 }
+        updatedAt: { type: integer, description: Fecha en milisegundos, example: 1786558913332 }
+        lastLogin: { type: integer, nullable: true, description: Fecha en milisegundos }
+    UserPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/User" }
+        total: { type: integer, example: 101 }
+        page: { type: integer, example: 1 }
+        per_page: { type: integer, example: 20 }
+        pages: { type: integer, example: 6 }
+    CreateUserRequest:
+      allOf:
+        - $ref: "#/components/schemas/RegisterRequest"
+        - type: object
+          properties:
+            role:
+              allOf: [{ $ref: "#/components/schemas/Role" }]
+              default: jugador
+    UpdateUserRequest:
+      type: object
+      properties:
+        nombre: { type: string }
+        apellido: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        is_active: { type: boolean }
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password: { type: string }
+        new_password: { type: string, minLength: 8, maxLength: 72 }
+    ResetPasswordResponse:
+      type: object
+      properties:
+        user_id: { type: integer, example: 30 }
+        new_password: { type: string, example: aBc123XyZ789 }
+        message: { type: string }
+
+    # --- Juego: preguntas ---
+    Opcion:
+      type: object
+      properties:
+        id: { type: integer, example: 4867 }
+        nombre: { type: string, example: Tero }
+        nombreCientifico: { type: string, example: Vanellus chilensis }
+    Pregunta:
+      type: object
+      description: El ave correcta (con su foto) y 4 opciones mezcladas
+      properties:
+        id: { type: integer, description: ID del ave correcta (taxón de iNaturalist), example: 4867 }
+        nombre: { type: string, example: Tero }
+        nombreCientifico: { type: string, example: Vanellus chilensis }
+        foto: { type: string, format: uri, example: https://static.inaturalist.org/photos/1/medium.jpg }
+        atribucion: { type: string, nullable: true, example: "(c) Juan Pérez, some rights reserved" }
+        opciones:
+          type: array
+          minItems: 4
+          maxItems: 4
+          items: { $ref: "#/components/schemas/Opcion" }
+    PreguntasResponse:
+      type: object
+      properties:
+        total: { type: integer, example: 10 }
+        preguntas:
+          type: array
+          items: { $ref: "#/components/schemas/Pregunta" }
+    IniciarResponse:
+      type: object
+      properties:
+        session_id: { type: integer, example: 304 }
+        mensaje: { type: string, example: Sesión iniciada. Comienza a jugar. }
+    AnswerRequest:
+      type: object
+      required: [ave_id, respuesta_usuario]
+      properties:
+        ave_id: { type: integer, example: 4867 }
+        respuesta_usuario: { type: string, example: Tero }
+        ave_nombre: { type: string, nullable: true, description: Se ignora (el nombre correcto sale del lote) }
+    AnswerResult:
+      type: object
+      properties:
+        es_correcta: { type: boolean, example: true }
+        puntos_obtenidos: { type: integer, description: Puntos base más bonus de racha, example: 15 }
+        mensaje: { type: string, example: "¡Correcto! ✓ 🔥 ¡Racha de 3! +5 pts bonus" }
+
+    # --- Partidas y respuestas ---
+    Respuesta:
+      type: object
+      description: Una respuesta guardada (pertenece a una partida)
+      properties:
+        id: { type: integer }
+        user_id: { type: integer }
+        session_id: { type: integer, description: La partida a la que pertenece }
+        ave_id: { type: integer }
+        ave_nombre: { type: string, description: El nombre correcto }
+        respuesta_usuario: { type: string }
+        es_correcta: { type: boolean }
+        puntos_obtenidos: { type: integer }
+        bonus_racha: { type: integer }
+        streak_en_respuesta: { type: integer }
+        createdAt: { type: integer }
+    PartidaResumen:
+      type: object
+      description: Una partida sin el lote de preguntas (así sale en el listado)
+      properties:
+        id: { type: integer, example: 1 }
+        user_id: { type: integer, example: 11 }
+        estado: { type: string, enum: [activa, terminada] }
+        place_id: { type: integer, nullable: true, example: 10434 }
+        locale: { type: string, nullable: true, example: es-AR }
+        streak_actual: { type: integer }
+        streak_maximo: { type: integer }
+        puntos_totales: { type: integer, description: Se completa al terminar }
+        total_intentos: { type: integer }
+        total_aciertos: { type: integer }
+        createdAt: { type: integer }
+        terminadaAt: { type: integer, nullable: true, description: null mientras está activa }
+    Partida:
+      allOf:
+        - $ref: "#/components/schemas/PartidaResumen"
+        - type: object
+          properties:
+            preguntas:
+              type: array
+              nullable: true
+              items: { $ref: "#/components/schemas/Pregunta" }
+    PartidaConRespuestas:
+      allOf:
+        - $ref: "#/components/schemas/Partida"
+        - type: object
+          properties:
+            respuestas:
+              type: array
+              items: { $ref: "#/components/schemas/Respuesta" }
+    PartidaPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/PartidaResumen" }
+        total: { type: integer }
+        page: { type: integer }
+        per_page: { type: integer }
+        pages: { type: integer }
+    CreatePartidaRequest:
+      type: object
+      properties:
+        place_id: { type: integer, default: 10434 }
+        locale: { type: string, default: es-AR }
+    UpdatePartidaRequest:
+      type: object
+      required: [estado]
+      properties:
+        estado: { type: string, enum: [terminada] }
+    RespuestaRegistrada:
+      type: object
+      properties:
+        ave_id: { type: integer }
+        respuesta_usuario: { type: string }
+        es_correcta: { type: boolean }
+        puntos_obtenidos: { type: integer }
+        bonus_racha: { type: integer }
+    SesionActiva:
+      type: object
+      properties:
+        session_id: { type: integer }
+        preguntas:
+          type: array
+          items: { $ref: "#/components/schemas/Pregunta" }
+        respuestas:
+          type: array
+          items: { $ref: "#/components/schemas/RespuestaRegistrada" }
+        streak_actual: { type: integer }
+        puntos_totales: { type: integer }
+    SessionStats:
+      type: object
+      properties:
+        session_id: { type: integer }
+        puntos_totales: { type: integer }
+        total_intentos: { type: integer }
+        total_aciertos: { type: integer }
+        estado: { type: string, example: activa }
+        porcentaje_acierto: { type: number, example: 66.67 }
+    FinishResult:
+      type: object
+      properties:
+        session_id: { type: integer }
+        puntos_totales: { type: integer, example: 35 }
+        total_intentos: { type: integer, example: 4 }
+        total_aciertos: { type: integer, example: 3 }
+        porcentaje_acierto: { type: number, example: 75 }
+        mensaje: { type: string, example: Sesión finalizada. Puntuación guardada. }
+
+    # --- Ranking y métricas ---
+    RankingEntry:
+      type: object
+      properties:
+        user_id: { type: integer }
+        nombre: { type: string }
+        apellido: { type: string }
+        puntos_totales: { type: integer }
+        aciertos: { type: integer }
+        fallos: { type: integer }
+    Ranking:
+      type: object
+      properties:
+        total_jugadores: { type: integer, example: 10 }
+        ranking:
+          type: array
+          items: { $ref: "#/components/schemas/RankingEntry" }
+    UserMetrics:
+      type: object
+      properties:
+        user_id: { type: integer }
+        nombre: { type: string }
+        apellido: { type: string }
+        total_intentos: { type: integer }
+        total_aciertos: { type: integer }
+        porcentaje_acierto: { type: number }
+        puntuacion_total: { type: integer }
+        posicion_ranking: { type: integer }
+    AveEstadistica:
+      type: object
+      properties:
+        id: { type: integer }
+        nombre: { type: string }
+        total_intentos: { type: integer }
+        total_aciertos: { type: integer }
+        porcentaje_acierto: { type: number }
+    GlobalMetrics:
+      type: object
+      properties:
+        total_jugadores_activos: { type: integer }
+        total_intentos_sistema: { type: integer }
+        porcentaje_acierto_global: { type: number }
+        ave_mas_acertada:
+          allOf: [{ $ref: "#/components/schemas/AveEstadistica" }]
+          nullable: true
+        ave_menos_acertada:
+          allOf: [{ $ref: "#/components/schemas/AveEstadistica" }]
+          nullable: true
+
+    # --- Actividad ---
+    ConnectionLogRequest:
+      type: object
+      required: [userId, tiempoConectado]
+      properties:
+        userId: { type: integer, nullable: true, description: null si no estaba logueado }
+        tiempoConectado: { type: integer, minimum: 0, description: Milisegundos que estuvo conectado }

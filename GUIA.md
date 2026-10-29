@@ -38,7 +38,8 @@ Es la API del juego **AvesBA**: el jugador ve la foto de un ave y tiene que adiv
 | Parte | Qué hace |
 |---|---|
 | **Login** | Registro, login, renovar tokens, logout. Los tokens viajan en cookies (así los usa el front) o en el header `Authorization`. |
-| **Usuarios** | Mi perfil, cambiar mi contraseña. Los admins y moderadores listan usuarios; los admins los editan y resetean contraseñas. |
+| **Usuarios** (CRUD) | Mi perfil, cambiar mi contraseña. Los admins y moderadores listan usuarios; los admins los crean, editan, eliminan y resetean contraseñas. |
+| **Partidas** (CRUD) | Listar (con filtros, orden y paginación), ver una partida con sus respuestas, crear, terminar y eliminar (solo admin). |
 | **Juego** | Iniciar partida (10 preguntas sacadas de iNaturalist), responder (con racha y bonus), retomar si recargás, terminar y ranking. |
 | **Métricas** | Las mías (intentos, aciertos, puntos, posición) y las globales (solo admins y moderadores). |
 | **Actividad** | El front avisa cuánto tiempo estuvo conectado el jugador cuando cierra la pestaña. |
@@ -93,6 +94,8 @@ Servidor AvesBA corriendo en http://localhost:8000
 | jugador | `jugador004@example.com` a `jugador100@example.com` | `Jugador123` |
 
 **Para usarlo con el frontend:** arrancá este backend y después el front (`npm run dev` en `TP-PNT2/AvesBA`). El front busca la API en `http://localhost:8000`, que es el puerto de este backend. Ojo: no podés tener corriendo al mismo tiempo el backend de Python, porque usan el mismo puerto.
+
+**Para ver y probar todos los endpoints:** abrí **http://localhost:8000/api-docs** (Swagger UI) y usá "Try it out".
 
 **Para probar a mano:** abrí `requests.http` con la extensión REST Client y mandá los pedidos en orden.
 
@@ -217,6 +220,7 @@ BackendNode/
 │   ├── auth/             registro, login, refresh, admin inicial
 │   ├── users/            perfil, contraseña, listado, edición
 │   ├── game/             iniciar, preguntas, responder, retomar, terminar, ranking
+│   ├── partidas/         el CRUD de partidas
 │   ├── metrics/          métricas del jugador y globales
 │   ├── activity/         aviso de desconexión
 │   └── seed/             los 100 jugadores de prueba
@@ -235,6 +239,7 @@ BackendNode/
 ├── alerts/               Qué hacer cuando pasa cada evento
 ├── notifications/        Por dónde avisar: consola, archivo o nada
 ├── errors/               AppError: el error "esperado" de la app
+├── docs/                 openapi.yaml (la documentación) y Swagger UI en /api-docs
 │
 └── tests/                Tests automáticos (npm test)
 ```
@@ -274,6 +279,7 @@ Todas son *factories*: reciben el controller (y los middlewares de auth) y devue
 | `authRoutes.js` | `/auth` | `register`, `login`, `refresh` y `logout`. Públicas, cada una con su validación. |
 | `usersRoutes.js` | `/users` | `router.use(authenticate)` protege todas. `/me` va antes que `/:id` (si no, Express tomaría "me" como un id). Usa `authorize("admin", "moderador")` o `authorize("admin")` según la ruta. |
 | `gameRoutes.js` | `/api/inaturalist/juego` | Las 7 rutas del juego, todas con login. |
+| `partidasRoutes.js` | `/partidas` | El CRUD de partidas, todo con login. Borrar es solo para admins. |
 | `metricsRoutes.js` | `/api/inaturalist/metricas` | `usuario` (con login) y `global` (solo admin y moderador). |
 | `activityRoutes.js` | `/api` | `POST /user-connection-log`. Usa `express.text()` + `parseTextJson`, porque el front la manda como texto plano. |
 
@@ -293,7 +299,8 @@ Todas son *factories*: reciben el controller (y los middlewares de auth) y devue
 | Archivo | Qué valida |
 |---|---|
 | `authSchema.js` | Registro (`nombre`, `apellido`, `email`, `password` de 8 a 72 caracteres). **No acepta `role`**: si un endpoint público dejara elegir el rol, cualquiera se registraría como admin. También login y refresh. |
-| `userSchema.js` | Cambio de contraseña, edición de usuario (`role` solo puede ser `jugador`, `moderador` o `admin`), query del listado (`page`, `per_page`, `role`) e id de la URL. |
+| `partidaSchema.js` | Query del listado (`user_id`, `estado`, `sort`, `page`, `per_page`), body para crear (`place_id`, `locale`) y para terminar (`estado: "terminada"`). |
+| `userSchema.js` | Crear usuario (como el registro, pero con `role`), cambio de contraseña, edición de usuario (`role` solo puede ser `jugador`, `moderador` o `admin`), query del listado (`page`, `per_page`, `role`) e id de la URL. |
 | `gameSchema.js` | Query de las aves (`place_id`, `locale`, con valores por defecto), body de la respuesta (`ave_id`, `respuesta_usuario`) y `limit` del ranking (1 a 100). |
 | `activitySchema.js` | `userId` (o `null`) y `tiempoConectado` en milisegundos. |
 
@@ -305,7 +312,8 @@ Todas son **clases** que reciben los casos de uso en el constructor y los guarda
 |---|---|
 | `HealthController.js` | `status`. |
 | `AuthController.js` | `register`, `login`, `refresh` y `logout`. Además del JSON, **pone los tokens en cookies**; `logout` las borra. |
-| `UsersController.js` | `me`, `changeMyPassword`, `list`, `get`, `update` y `resetPassword`. Pasa `req.user` como "actor". |
+| `UsersController.js` | `me`, `changeMyPassword`, `list`, `get`, `create` (201), `update`, `remove` (204) y `resetPassword`. Pasa `req.user` como "actor". |
+| `PartidasController.js` | `list`, `get`, `create` (201), `update` y `remove` (204). |
 | `GameController.js` | `start`, `questions`, `answer`, `activeSession`, `sessionStats`, `finish` y `ranking`. |
 | `MetricsController.js` | `user` y `global`. |
 | `ActivityController.js` | `connectionLog` (responde 204, "recibido y no hay nada que devolver"). |
@@ -318,7 +326,7 @@ Cada carpeta tiene un archivo por acción y un `make...UseCases.js`, la **factor
 
 | Archivo | Qué hace |
 |---|---|
-| `registerUser.js` | Si el email ya existe → 409. Hashea la contraseña, crea el usuario **siempre como `jugador`**, emite `user.registered` y devuelve los tokens. |
+| `registerUser.js` | Reutiliza `createUser` pero **fuerza el rol `jugador`**, y devuelve los tokens para que quede logueado. |
 | `loginUser.js` | Revisa si el email está bloqueado por intentos fallidos. Busca las credenciales y compara con bcrypt. **Si el email no existe o la clave está mal, da el MISMO error**, para no revelar quién tiene cuenta. Un usuario inactivo no entra. Guarda la fecha del último login. |
 | `refreshSession.js` | Verifica que sea un token de tipo *refresh* (un access no sirve acá) y que el usuario siga activo. Devuelve tokens nuevos. |
 | `issueTokens.js` | Arma `{ access_token, refresh_token, token_type, expires_in }`. El token lleva solo `sub` (el id) y `role`. |
@@ -335,6 +343,19 @@ Cada carpeta tiene un archivo por acción y un `make...UseCases.js`, la **factor
 | `updateUser.js` | Cambia solo los campos que vinieron (nombre, apellido, rol, activo). |
 | `changePassword.js` | Exige la contraseña actual correcta antes de poner la nueva. |
 | `resetPassword.js` | Genera una contraseña nueva al azar (con `crypto`, no con `Math.random`) y la devuelve una sola vez. |
+| `createUser.js` | Si el email ya existe → 409. Hashea la contraseña, crea el usuario con el rol pedido y emite `user.registered`. Lo usan el admin (`POST /users`) y el registro. |
+| `deleteUser.js` | Un admin no puede eliminarse a sí mismo (409). Borra las respuestas, después las partidas y al final el usuario (en ese orden, porque la base no deja borrar algo que otra tabla todavía referencia). |
+
+**`usecases/partidas/`**: el CRUD de la entidad Partida
+
+| Archivo | Qué hace |
+|---|---|
+| `listPartidas.js` | Listado con filtros, orden y paginación, sin el lote de preguntas. **Un jugador ve solo las suyas**; si pide las de otro, 403. |
+| `getPartida.js` | La partida **con sus respuestas** (la relación 1 a N). |
+| `finishPartida.js` | Terminar la partida (`PATCH`). Si ya estaba terminada → 409. Reutiliza `closeSession`. |
+| `deletePartida.js` | Borra la partida y sus respuestas: deja de contar en el ranking. |
+| `assertCanAccess.js` | La regla "un jugador solo opera sus partidas". |
+| `makePartidaUseCases.js` | La factory. Crear una partida reutiliza `startGame` del juego. |
 
 **`usecases/game/`**
 
@@ -374,9 +395,9 @@ Cada entidad tiene **dos DAOs con exactamente los mismos métodos**: ese es el *
 | Archivo | Qué hace |
 |---|---|
 | `daoFactory.js` | `getUsersDao()`, `getGameSessionsDao()` y `getGameResultsDao()`: según `PERSISTENCE_TYPE`, crea el de memoria o el de Sequelize. |
-| `users/Users*Dao.js` | `getAll` (con filtros y paginación), `count`, `getById`, `getByEmail`, `getCredentialsByEmail`, `save` y `update`. **Ninguno devuelve el hash de la contraseña, salvo `getCredentialsByEmail`**, que existe solo para el login. |
-| `gameSessions/GameSessions*Dao.js` | `create`, `getById`, `getActiveByUser`, `getAllActiveByUser` y `update`. Guarda el lote de preguntas como JSON. |
-| `gameResults/GameResults*Dao.js` | `save`, `saveMany` (muchas juntas, para los datos de prueba), `getBySession` (en orden), `findInSession` y `getAll`. |
+| `users/Users*Dao.js` | `getAll` (con filtros y paginación), `count`, `getById`, `getByEmail`, `getCredentialsByEmail`, `save`, `update` y `delete`. **Ninguno devuelve el hash de la contraseña, salvo `getCredentialsByEmail`**, que existe solo para el login. |
+| `gameSessions/GameSessions*Dao.js` | `getAll` (filtros, orden y paginación), `count`, `create`, `getById`, `getActiveByUser`, `getAllActiveByUser`, `update`, `delete` y `deleteByUser`. Guarda el lote de preguntas como JSON. |
+| `gameResults/GameResults*Dao.js` | `save`, `saveMany` (muchas juntas, para los datos de prueba), `getBySession` (en orden), `findInSession`, `getAll`, `deleteBySession` y `deleteByUser`. |
 
 Los DAO de Sequelize tienen además `init()`, que prepara la base y crea las tablas.
 
@@ -429,6 +450,13 @@ caso de uso ──emit("game.finished")──▶ bus de eventos ──▶ listen
 | `alerts/registerAlertListeners.js` | Para cada evento arma un aviso y lo manda al notificador. Si el notificador falla, **no rompe** el caso de uso que emitió el evento. |
 | `notifications/*Notifier.js` | Consola, archivo (`notifications.log`) o silencioso. Los tres tienen el mismo contrato: `notify({ subject, body })`. |
 | `notifications/notifierFactory.js` | Elige uno según `NOTIFIER_TYPE`. |
+
+### `docs/`: la documentación Swagger
+
+| Archivo | Qué hace |
+|---|---|
+| `openapi.yaml` | La documentación OpenAPI 3: los 28 endpoints con parámetros, bodies con ejemplos y todas las respuestas. Los schemas (`User`, `Partida`, `Error`…) están en `components/schemas` y se reutilizan con `$ref`. |
+| `swagger.js` | Lee el yaml y publica Swagger UI en **`/api-docs`** (y el JSON en `/api-docs.json`). Se monta en `app.js`. |
 
 ### `errors/`
 
@@ -542,9 +570,16 @@ Una partida perfecta (10 de 10) da 100 + 5 + 15 + 50 = **170 puntos**.
 | GET | `/users/me` | 🔐 | Mi perfil |
 | PATCH | `/users/me/password` | 🔐 | Cambiar mi contraseña |
 | GET | `/users?page=&per_page=&role=` | 👮 | Listar usuarios activos |
+| POST | `/users` | 👑 | Crear un usuario eligiendo el rol |
 | GET | `/users/:id` | 🔐 | Ver un usuario (el jugador, solo a sí mismo) |
 | PATCH | `/users/:id` | 👑 | Editar nombre, apellido, rol o activo |
+| DELETE | `/users/:id` | 👑 | Eliminar un usuario con sus partidas (204) |
 | POST | `/users/:id/reset-password` | 👑 | Generar una contraseña nueva |
+| GET | `/partidas?user_id=&estado=&sort=&page=&per_page=` | 🔐 | Listar partidas (el jugador, solo las suyas) |
+| POST | `/partidas` | 🔐 | Crear una partida (201) |
+| GET | `/partidas/:id` | 🔐 | Ver una partida con sus respuestas |
+| PATCH | `/partidas/:id` | 🔐 | Terminar una partida |
+| DELETE | `/partidas/:id` | 👑 | Eliminar una partida con sus respuestas (204) |
 | POST | `/api/inaturalist/juego/iniciar?place_id=&locale=` | 🔐 | Iniciar partida |
 | GET | `/api/inaturalist/juego/aves?place_id=&locale=` | 🔐 | Preguntas del juego |
 | POST | `/api/inaturalist/juego/respuesta` | 🔐 | Responder una pregunta |
@@ -563,8 +598,8 @@ Una partida perfecta (10 de 10) da 100 + 5 + 15 + 50 = **170 puntos**.
 | 400 | `VALIDATION_ERROR`, `INVALID_JSON`, `WRONG_PASSWORD`, `ALREADY_ANSWERED`, `BIRD_NOT_IN_BATCH` | Mandaste algo mal |
 | 401 | `TOKEN_MISSING`, `TOKEN_INVALID`, `TOKEN_EXPIRED`, `INVALID_CREDENTIALS`, `USER_INACTIVE` | No sabemos quién sos |
 | 403 | `FORBIDDEN` | Sabemos quién sos, pero no tenés permiso |
-| 404 | `USER_NOT_FOUND`, `NO_ACTIVE_SESSION`, `ROUTE_NOT_FOUND` | No existe |
-| 409 | `EMAIL_DUPLICATED`, `SESSION_WITHOUT_BATCH` | Choca con lo que ya hay |
+| 404 | `USER_NOT_FOUND`, `PARTIDA_NOT_FOUND`, `NO_ACTIVE_SESSION`, `ROUTE_NOT_FOUND` | No existe |
+| 409 | `EMAIL_DUPLICATED`, `CANNOT_DELETE_SELF`, `PARTIDA_ALREADY_FINISHED`, `SESSION_WITHOUT_BATCH` | Choca con lo que ya hay |
 | 429 | `TOO_MANY_ATTEMPTS` | Demasiados intentos de login |
 | 503 | `BIRDS_UNAVAILABLE`, `NOT_ENOUGH_BIRDS` | iNaturalist no responde |
 | 500 | `INTERNAL_ERROR` | Un error que no esperábamos (se ve en la consola) |
@@ -585,6 +620,7 @@ Una partida perfecta (10 de 10) da 100 + 5 + 15 + 50 = **170 puntos**.
 | 10 | Eventos, listeners, notificadores | `events/`, `alerts/`, `notifications/` |
 | 11 | bcrypt, JWT, `authenticate`/`authorize`, autorización por dueño | `security/`, `middlewares/auth.js`, `usecases/auth/`, `usecases/users/getUserById.js` |
 | 12 | API externa con `fetch` | `birds/inaturalistBirdsProvider.js` |
+| TP integrador | Swagger / OpenAPI | `docs/openapi.yaml`, `docs/swagger.js` |
 
 ---
 
@@ -594,7 +630,7 @@ Una partida perfecta (10 de 10) da 100 + 5 + 15 + 50 = **170 puntos**.
 npm test
 ```
 
-Corre **222 tests** en unos 7 segundos, **sin internet** y **sin tocar tu `database.sqlite`**: los tests usan SQLite en memoria y el proveedor de aves falso. Usan el runner que viene con Node (`node:test`), así que no hay que instalar nada.
+Corre **290 tests** en unos 10 segundos, **sin internet** y **sin tocar tu `database.sqlite`**: los tests usan SQLite en memoria y el proveedor de aves falso. Usan el runner que viene con Node (`node:test`), así que no hay que instalar nada.
 
 | Archivo | Qué prueba |
 |---|---|
@@ -606,6 +642,9 @@ Corre **222 tests** en unos 7 segundos, **sin internet** y **sin tocar tu `datab
 | `tests/unit/daos.test.js` | **Contrato:** los DAOs de memoria y de SQLite se comportan igual, y nunca devuelven el hash |
 | `tests/api/auth.test.js` | Registro, login, refresh, logout, cookies, bloqueo |
 | `tests/api/users.test.js` | Perfil, contraseña, listado, permisos por rol y por dueño |
+| `tests/api/usersCrud.test.js` | Crear y eliminar usuarios (con sus partidas), no eliminarse a uno mismo |
+| `tests/api/partidas.test.js` | El CRUD de partidas: filtros, orden, paginación, dueño, terminar dos veces, borrar |
+| `tests/api/docs.test.js` | Swagger en `/api-docs`: que documente **todas** las rutas del código y que los `$ref` existan |
 | `tests/api/game.test.js` | Toda la partida, el lote, las trampas, la racha, retomar, ranking, iNaturalist caído |
 | `tests/api/metrics.test.js` | Métricas propias y globales, permisos, sistema sin partidas |
 | `tests/api/events.test.js` | Que cada evento llegue al notificador; el aviso de desconexión |

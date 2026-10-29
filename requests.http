@@ -272,3 +272,108 @@ Content-Type: application/json
 ### 7.3 Token modificado a mano (401 TOKEN_INVALID)
 GET {{baseUrl}}/users/me
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwicm9sZSI6ImFkbWluIiwidHlwZSI6ImFjY2VzcyJ9.firmaFalsa
+
+
+###############################################################################
+# 8. CRUD DE USUARIOS (solo admin)
+###############################################################################
+
+### 8.1 Crear un usuario eligiendo el rol (201) — la segunda vez da 409
+# @name nuevoUsuario
+POST {{baseUrl}}/users
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "nombre": "Laura",
+  "apellido": "Ríos",
+  "email": "laura.rios@example.com",
+  "password": "ClaveSegura123",
+  "role": "moderador"
+}
+
+### 8.2 Un jugador intenta crear un usuario (403)
+POST {{baseUrl}}/users
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nombre": "X",
+  "apellido": "Y",
+  "email": "x@example.com",
+  "password": "ClaveSegura123"
+}
+
+### 8.3 Eliminar el usuario recién creado (204, sin cuerpo)
+DELETE {{baseUrl}}/users/{{nuevoUsuario.response.body.$.id}}
+Authorization: Bearer {{adminToken}}
+
+### 8.4 El admin intenta eliminarse a sí mismo (409 CANNOT_DELETE_SELF)
+DELETE {{baseUrl}}/users/1
+Authorization: Bearer {{adminToken}}
+
+
+###############################################################################
+# 9. CRUD DE PARTIDAS
+###############################################################################
+
+### 9.1 Crear una partida (201, trae 10 preguntas de iNaturalist)
+# @name nuevaPartida
+POST {{baseUrl}}/partidas
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "place_id": 10434,
+  "locale": "es-AR"
+}
+
+### 9.2 Mis partidas, ordenadas por puntos (200)
+GET {{baseUrl}}/partidas?sort=-puntos_totales&per_page=5
+Authorization: Bearer {{token}}
+
+### 9.3 Ver la partida con sus respuestas (200)
+GET {{baseUrl}}/partidas/{{nuevaPartida.response.body.$.id}}
+Authorization: Bearer {{token}}
+
+### 9.4 Un jugador pide las partidas de otro (403)
+GET {{baseUrl}}/partidas?user_id=2
+Authorization: Bearer {{token}}
+
+### 9.5 El admin filtra las partidas terminadas de un usuario (200)
+GET {{baseUrl}}/partidas?user_id=11&estado=terminada
+Authorization: Bearer {{adminToken}}
+
+### 9.6 Terminar la partida (200)
+PATCH {{baseUrl}}/partidas/{{nuevaPartida.response.body.$.id}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "estado": "terminada"
+}
+
+### 9.7 Terminarla otra vez (409 PARTIDA_ALREADY_FINISHED)
+PATCH {{baseUrl}}/partidas/{{nuevaPartida.response.body.$.id}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "estado": "terminada"
+}
+
+### 9.8 Un jugador intenta borrar una partida (403)
+DELETE {{baseUrl}}/partidas/{{nuevaPartida.response.body.$.id}}
+Authorization: Bearer {{token}}
+
+### 9.9 El admin borra la partida (204)
+DELETE {{baseUrl}}/partidas/{{nuevaPartida.response.body.$.id}}
+Authorization: Bearer {{adminToken}}
+
+
+###############################################################################
+# 10. DOCUMENTACIÓN
+###############################################################################
+
+### 10.1 El documento OpenAPI en JSON (Swagger UI está en http://localhost:8000/api-docs)
+GET {{baseUrl}}/api-docs.json
